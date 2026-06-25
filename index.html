@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<title>工时统计</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icons/icon-180.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="工时统计">
+<meta name="theme-color" content="#3373F2">
+<style>
+:root{
+  --bg:#F2F2F7; --card:#FFFFFF; --card2:#F6F6F9; --text:#1C1C1E; --text2:#6E6E73; --text3:#A8A8AE;
+  --border:rgba(0,0,0,0.08); --accent:#3373F2;
+  --green-bg:#E4F5EC; --green-tx:#137A45; --amber-bg:#FBEFD6; --amber-tx:#A86C0C;
+  --red-tx:#D7382F; --gray-bg:#EAEAEE; --gray-tx:#6E6E73; --blue-bg:#E3ECFD; --blue-tx:#2A5FD6;
+}
+@media (prefers-color-scheme:dark){
+  :root{
+    --bg:#000000; --card:#1C1C1E; --card2:#2C2C2E; --text:#FFFFFF; --text2:#9A9AA0; --text3:#636366;
+    --border:rgba(255,255,255,0.12); --accent:#4C8DFF;
+    --green-bg:#10371E; --green-tx:#52D487; --amber-bg:#3A2B0E; --amber-tx:#F2B23E;
+    --red-tx:#FF6961; --gray-bg:#2C2C2E; --gray-tx:#9A9AA0; --blue-bg:#13254C; --blue-tx:#74A2FF;
+  }
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+html,body{margin:0;padding:0;}
+body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"PingFang SC","Helvetica Neue",sans-serif;
+  padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);}
+.wrap{max-width:520px;margin:0 auto;padding:8px 14px 28px;}
+.bar{display:flex;align-items:center;justify-content:space-between;padding:8px 2px 14px;}
+.bar h1{font-size:20px;font-weight:600;margin:0;}
+.navbtn{width:38px;height:38px;border:none;background:var(--card2);color:var(--text);border-radius:50%;font-size:20px;line-height:1;display:flex;align-items:center;justify-content:center;cursor:pointer;}
+.today-btn{border:none;background:var(--card2);color:var(--accent);font-size:14px;font-weight:600;padding:8px 14px;border-radius:19px;cursor:pointer;}
+.card{background:var(--card);border:0.5px solid var(--border);border-radius:18px;padding:16px 18px;}
+.bignum{font-size:34px;font-weight:700;letter-spacing:-0.5px;}
+.muted{color:var(--text2);} .hint{color:var(--text3);}
+.track{height:8px;background:var(--gray-bg);border-radius:5px;overflow:hidden;margin:12px 0;}
+.fill{height:100%;border-radius:5px;}
+.stats{display:flex;}
+.stats>div{flex:1;text-align:center;}
+.stats .v{font-size:16px;font-weight:600;} .stats .l{font-size:11px;color:var(--text3);margin-top:1px;}
+.statusline{display:flex;gap:8px;align-items:flex-start;font-size:13px;margin-top:13px;line-height:1.45;}
+.weekhdr{display:grid;grid-template-columns:repeat(7,1fr);gap:6px;margin:18px 0 6px;}
+.weekhdr div{text-align:center;font-size:12px;color:var(--text3);}
+.grid{display:grid;grid-template-columns:repeat(7,1fr);gap:6px;}
+.cell{min-height:54px;border-radius:12px;background:var(--card);border:0.5px solid var(--border);
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;cursor:pointer;padding:3px;}
+.cell .dnum{font-size:15px;font-weight:600;line-height:1;}
+.cell .sub{font-size:10.5px;font-weight:600;line-height:1;}
+.cell.empty{background:transparent;border:none;cursor:default;}
+.cell.dim .dnum{color:var(--text3);font-weight:500;}
+.cell.today{border:2px solid var(--accent);}
+.legend{display:flex;flex-wrap:wrap;gap:10px 16px;justify-content:center;margin-top:16px;font-size:11.5px;color:var(--text2);}
+.legend span{display:inline-flex;align-items:center;gap:5px;}
+.dot{width:10px;height:10px;border-radius:3px;display:inline-block;}
+/* sheet */
+.backdrop{position:fixed;inset:0;background:rgba(0,0,0,0.45);opacity:0;pointer-events:none;transition:opacity .2s;z-index:10;}
+.backdrop.open{opacity:1;pointer-events:auto;}
+.sheet{position:fixed;left:0;right:0;bottom:0;background:var(--card);border-top-left-radius:22px;border-top-right-radius:22px;
+  transform:translateY(110%);transition:transform .26s cubic-bezier(.32,.72,0,1);z-index:11;
+  padding:14px 18px calc(22px + env(safe-area-inset-bottom));max-width:520px;margin:0 auto;}
+.sheet.open{transform:translateY(0);}
+.sheethdr{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;}
+.sheethdr .t{font-size:16px;font-weight:600;}
+.linkbtn{border:none;background:none;font-size:15px;color:var(--accent);cursor:pointer;padding:4px;}
+.linkbtn.plain{color:var(--text2);}
+.seg{display:flex;background:var(--gray-bg);border-radius:10px;padding:3px;margin-bottom:16px;}
+.seg button{flex:1;border:none;background:none;border-radius:8px;padding:8px;font-size:14px;color:var(--text);cursor:pointer;}
+.seg button.on{background:var(--card);font-weight:600;box-shadow:0 1px 3px rgba(0,0,0,0.12);}
+.times{display:flex;gap:12px;margin-bottom:12px;}
+.times label{flex:1;font-size:13px;color:var(--text2);}
+.times input{width:100%;margin-top:6px;font-size:17px;padding:9px 10px;border:0.5px solid var(--border);border-radius:10px;background:var(--card2);color:var(--text);}
+.quick{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px;}
+.quick button{font-size:12.5px;padding:8px 12px;border-radius:18px;border:none;background:var(--blue-bg);color:var(--blue-tx);font-weight:600;cursor:pointer;}
+.live{background:var(--card2);border-radius:12px;padding:13px 15px;}
+.live .row{display:flex;justify-content:space-between;align-items:baseline;}
+.live .h{font-size:24px;font-weight:700;}
+.note{font-size:12px;margin-top:7px;}
+.info{font-size:12.5px;margin-bottom:12px;line-height:1.45;}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="bar">
+    <button class="navbtn" id="prev" aria-label="上个月">‹</button>
+    <h1 id="title">2026年6月</h1>
+    <div style="display:flex;gap:8px;align-items:center;">
+      <button class="today-btn" id="today">今天</button>
+      <button class="navbtn" id="next" aria-label="下个月">›</button>
+    </div>
+  </div>
+  <div id="summary"></div>
+  <div class="weekhdr"><div>一</div><div>二</div><div>三</div><div>四</div><div>五</div><div>六</div><div>日</div></div>
+  <div class="grid" id="grid"></div>
+  <div class="legend">
+    <span><i class="dot" style="background:var(--green-bg)"></i>达标(≥8h)</span>
+    <span><i class="dot" style="background:var(--amber-bg)"></i>不足8h</span>
+    <span><i class="dot" style="background:var(--blue-bg)"></i>调休班</span>
+    <span><i class="dot" style="background:var(--gray-bg)"></i>请假</span>
+    <span><i class="dot" style="background:var(--card);border:1px solid var(--border)"></i>休息日</span>
+  </div>
+</div>
+
+<div class="backdrop" id="backdrop"></div>
+<div class="sheet" id="sheet">
+  <div class="sheethdr">
+    <button class="linkbtn plain" id="cancel">取消</button>
+    <div class="t" id="sheetTitle"></div>
+    <button class="linkbtn" id="save" style="font-weight:600;">保存</button>
+  </div>
+  <div class="info" id="sheetInfo" style="display:none;"></div>
+  <div class="seg" id="kindSeg">
+    <button data-k="work">上班</button>
+    <button data-k="leave">请假（全天）</button>
+  </div>
+  <div id="workArea">
+    <div class="times">
+      <label>上班<input type="time" id="ci" value="08:30"></label>
+      <label>下班<input type="time" id="co" value="18:00"></label>
+    </div>
+    <div class="quick">
+      <button data-q="in830">8:30 到岗</button>
+      <button data-q="out1800">18:00 下班</button>
+      <button data-q="suggest">按达标建议下班</button>
+    </div>
+    <div class="live">
+      <div class="row"><span class="muted" style="font-size:14px;">当日有效工时</span><span class="h" id="liveH">8.0 h</span></div>
+      <div class="note" id="liveLate" style="display:none;"></div>
+    </div>
+  </div>
+  <button class="linkbtn" id="clear" style="width:100%;color:var(--red-tx);margin-top:14px;display:none;">清除本日记录</button>
+</div>
+
+<script>
+(function(){
+  "use strict";
+  var R={earliest:510,mornEnd:750,aftStart:840,aftEnd:1080,eveStart:1110,late:570,stdMin:480,stdH:8};
+  var ov=function(a,b,c,d){return Math.max(0,Math.min(b,d)-Math.max(a,c));};
+  function effMin(ci,co){if(co<=ci)return 0;return ov(ci,co,R.earliest,R.mornEnd)+ov(ci,co,R.aftStart,R.aftEnd)+ov(ci,co,R.eveStart,1440);}
+  function effH(ci,co){return effMin(ci,co)/60;}
+  function lateLeave(ci){return ci>R.late?(ci-R.late)/60/8:0;}
+  function recCO(t,ci){ci=Math.min(ci,R.mornEnd);var m=Math.max(0,R.mornEnd-Math.max(ci,R.earliest));var need=t-m-240;return need<=0?Math.min(R.aftStart+(t-m),R.aftEnd):R.eveStart+need;}
+  function pad(n){return(n<10?"0":"")+n;}
+  function hhmm(m){return pad(Math.floor(m/60))+":"+pad(m%60);}
+  function parse(v){var p=(v||"0:0").split(":");return (+p[0])*60+(+p[1]);}
+
+  var HOL=new Set(["2026-01-01","2026-01-02","2026-01-03","2026-02-15","2026-02-16","2026-02-17","2026-02-18","2026-02-19","2026-02-20","2026-02-21","2026-02-22","2026-02-23","2026-04-04","2026-04-05","2026-04-06","2026-05-01","2026-05-02","2026-05-03","2026-05-04","2026-05-05","2026-06-19","2026-06-20","2026-06-21","2026-09-25","2026-09-26","2026-09-27","2026-10-01","2026-10-02","2026-10-03","2026-10-04","2026-10-05","2026-10-06","2026-10-07"]);
+  var MK=new Set(["2026-01-04","2026-02-14","2026-02-28","2026-05-09","2026-09-20","2026-10-10"]);
+  var NM={"2026-01-01":"元旦","2026-02-15":"春节","2026-02-17":"初一","2026-04-04":"清明","2026-05-01":"劳动","2026-06-19":"端午","2026-09-25":"中秋","2026-10-01":"国庆"};
+  var WD=["周日","周一","周二","周三","周四","周五","周六"];
+  function key(y,m,d){return y+"-"+pad(m)+"-"+pad(d);}
+  function isWork(k,dow){if(MK.has(k))return true;if(HOL.has(k))return false;return dow!==0&&dow!==6;}
+  // 真正的法定节假日（自动计 8h 有效工时；不含调休借放日），2026 年共 13 天
+  var STAT=new Set(["2026-01-01","2026-02-16","2026-02-17","2026-02-18","2026-02-19","2026-04-05","2026-05-01","2026-05-02","2026-06-19","2026-09-25","2026-10-01","2026-10-02","2026-10-03"]);
+  // 仅当法定节假日落在周一~周五（本应上班）时，才自动计 8h
+  function isPaidHol(k,dow){return STAT.has(k)&&dow>=1&&dow<=5;}
+
+  var LS="workhours.records.v1";
+  var rec={};
+  try{rec=JSON.parse(localStorage.getItem(LS)||"{}");}catch(e){rec={};}
+  function persist(){try{localStorage.setItem(LS,JSON.stringify(rec));}catch(e){}}
+
+  var T=new Date();
+  var TKEY=key(T.getFullYear(),T.getMonth()+1,T.getDate());
+  var anchor={y:T.getFullYear(),m:T.getMonth()+1};
+  var curKey=null,curKind="work";
+
+  function daysIn(y,m){return new Date(y,m,0).getDate();}
+  function stats(y,m){
+    var s={wd:0,logH:0,tgt:0,logD:0,rem:0,lv:0,lateD:0,hol:0};
+    for(var d=1;d<=daysIn(y,m);d++){
+      var k=key(y,m,d),dow=new Date(y,m-1,d).getDay(),r=rec[k];
+      if(r&&r.kind==="leave"){s.lv++;continue;}
+      if(isPaidHol(k,dow)){s.wd++;s.hol++;s.logH+=R.stdH;continue;} // 节假日：进目标天数 + 自动记 8h（净额为0）
+      var w=isWork(k,dow);if(w)s.wd++;
+      if(r&&r.kind==="work"&&r.ci!=null&&r.co!=null){s.logH+=effH(r.ci,r.co);if(w)s.logD++;s.lateD+=lateLeave(r.ci);}
+      else if(w)s.rem++;
+    }
+    s.tgt=R.stdH*s.wd;s.diff=s.logH-s.tgt;s.per=s.rem>0?(s.tgt-s.logH)/s.rem:0;s.prog=s.tgt>0?Math.min(1,s.logH/s.tgt):0;s.done=s.logD+s.hol;
+    return s;
+  }
+  function statusOf(s){
+    if(s.wd===0)return{t:"本月没有应出勤工作日",c:"var(--text3)",f:"var(--text3)"};
+    if(s.rem===0){
+      if(s.diff>0.05)return{t:"本月已超目标 "+s.diff.toFixed(1)+" 小时",c:"var(--amber-tx)",f:"var(--amber-tx)"};
+      if(s.diff<-0.05)return{t:"还差 "+(-s.diff).toFixed(1)+" 小时，且无剩余工作日，需补卡",c:"var(--red-tx)",f:"var(--red-tx)"};
+      return{t:"本月已正好达标",c:"var(--green-tx)",f:"var(--green-tx)"};
+    }
+    if(s.per>R.stdH+0.01)return{t:"需加班：剩余每个工作日平均要 "+s.per.toFixed(1)+" 小时",c:"var(--amber-tx)",f:"var(--amber-tx)"};
+    if(s.per<0)return{t:"已超出目标，剩余日子可准时下班",c:"var(--green-tx)",f:"var(--green-tx)"};
+    return{t:"轻松达标：剩余每个工作日平均 "+s.per.toFixed(1)+" 小时即可",c:"var(--green-tx)",f:"var(--accent)"};
+  }
+
+  function renderSummary(){
+    var s=stats(anchor.y,anchor.m),st=statusOf(s);
+    var sug="";
+    if(s.rem>0&&s.per>0)sug='<div class="hint" style="font-size:12px;margin-top:9px;">建议：8:30 到岗则约 '+hhmm(recCO(Math.round(s.per*60),R.earliest))+' 下班</div>';
+    var ded=[];if(s.hol>0)ded.push("法定节假日 "+s.hol+" 天自动计 8h");if(s.lv>0)ded.push("请假 "+s.lv+" 天");if(s.lateD>0.001)ded.push("迟到折算无薪请假 "+s.lateD.toFixed(1)+" 天");
+    var dedHtml=ded.length?'<div class="hint" style="font-size:12px;margin-top:5px;">'+ded.join("，")+'</div>':"";
+    function c(l,v){return '<div><div class="v">'+v+'</div><div class="l">'+l+'</div></div>';}
+    document.getElementById("summary").innerHTML='<div class="card">'
+      +'<div style="display:flex;align-items:baseline;gap:8px;"><span class="bignum">'+s.logH.toFixed(1)+'</span><span class="muted" style="font-size:15px;">h / 目标 '+s.tgt.toFixed(0)+' h</span></div>'
+      +'<div class="track"><div class="fill" style="width:'+(s.prog*100).toFixed(0)+'%;background:'+st.f+';"></div></div>'
+      +'<div class="stats">'+c("应计",s.wd+" 天")+c("已完成",s.done+" 天")+c("剩余",s.rem+" 天")+c(s.diff>=0?"已超":"还差",Math.abs(s.diff).toFixed(1)+" h")+'</div>'
+      +'<div class="statusline" style="color:'+st.c+';"><span>'+st.t+'</span></div>'+sug+dedHtml+'</div>';
+  }
+
+  function renderGrid(){
+    var y=anchor.y,m=anchor.m,n=daysIn(y,m);
+    var lead=(new Date(y,m-1,1).getDay()+6)%7;
+    var h="";
+    for(var i=0;i<lead;i++)h+='<div class="cell empty"></div>';
+    for(var d=1;d<=n;d++){
+      var k=key(y,m,d),dow=new Date(y,m-1,d).getDay(),r=rec[k];
+      var isHol=HOL.has(k),isMk=MK.has(k),paid=isPaidHol(k,dow),isWe=(dow===0||dow===6)&&!isMk;
+      var cls="cell",bg="",sub="";
+      if(r&&r.kind==="leave"){bg="background:var(--gray-bg);";sub='<span class="sub" style="color:var(--gray-tx)">请假</span>';}
+      else if(paid){bg="background:var(--green-bg);";sub='<span class="sub" style="color:var(--green-tx)">'+(NM[k]||"假")+'</span>';}
+      else if(r&&r.kind==="work"&&r.ci!=null){
+        var hrs=effH(r.ci,r.co);
+        if(hrs>=R.stdH-0.001){bg="background:var(--green-bg);";sub='<span class="sub" style="color:var(--green-tx)">'+hrs.toFixed(1)+'</span>';}
+        else{bg="background:var(--amber-bg);";sub='<span class="sub" style="color:var(--amber-tx)">'+hrs.toFixed(1)+'</span>';}
+      }
+      else if(isMk){sub='<span class="sub" style="color:var(--blue-tx)">班</span>';}
+      else if(isHol){cls+=" dim";sub='<span class="sub" style="color:var(--text3)">休</span>';}
+      else if(isWe){cls+=" dim";}
+      if(k===TKEY)cls+=" today";
+      h+='<div class="'+cls+'" data-key="'+k+'" style="'+bg+'"><span class="dnum">'+d+'</span>'+sub+'</div>';
+    }
+    document.getElementById("grid").innerHTML=h;
+  }
+  function render(){document.getElementById("title").textContent=anchor.y+"年"+anchor.m+"月";renderSummary();renderGrid();}
+
+  function liveUpdate(){
+    var ci=parse(document.getElementById("ci").value),co=parse(document.getElementById("co").value);
+    document.getElementById("liveH").textContent=effH(ci,co).toFixed(1)+" h";
+    var el=document.getElementById("liveLate"),ld=lateLeave(ci);
+    if(co<=ci){el.style.display="block";el.textContent="下班时间需晚于上班时间";el.style.color="var(--red-tx)";}
+    else if(ld>0.001){el.style.display="block";el.textContent="迟到折算请假 "+ld.toFixed(2)+" 天（无薪）";el.style.color="var(--amber-tx)";}
+    else el.style.display="none";
+  }
+  function setKind(k){curKind=k;Array.prototype.forEach.call(document.querySelectorAll("#kindSeg button"),function(b){b.classList.toggle("on",b.dataset.k===k);});document.getElementById("workArea").style.display=k==="work"?"block":"none";}
+
+  function openEditor(k){
+    curKey=k;var r=rec[k],p=k.split("-"),dt=new Date(+p[0],+p[1]-1,+p[2]),dow=dt.getDay();
+    document.getElementById("sheetTitle").textContent=(+p[1])+"月"+(+p[2])+"日 "+WD[dow];
+    var info=document.getElementById("sheetInfo");
+    var seg=document.getElementById("kindSeg"),wa=document.getElementById("workArea"),save=document.getElementById("save"),clr=document.getElementById("clear");
+    if(isPaidHol(k,dow)){ // 法定节假日：自动 8h，无需编辑
+      info.style.display="block";info.style.color="var(--green-tx)";
+      info.textContent="法定节假日"+(NM[k]?"（"+NM[k]+"）":"")+"，自动计 8h 有效工时，无需打卡。";
+      seg.style.display="none";wa.style.display="none";save.style.display="none";clr.style.display="none";
+      document.getElementById("backdrop").classList.add("open");document.getElementById("sheet").classList.add("open");
+      return;
+    }
+    seg.style.display="";save.style.display="";
+    if(HOL.has(k)){info.style.display="block";info.style.color="var(--green-tx)";info.textContent="假期/休息日，无需打卡；如加班可照填，计入本月合计。";}
+    else if(MK.has(k)){info.style.display="block";info.style.color="var(--blue-tx)";info.textContent="调休补班日，需正常上班。";}
+    else info.style.display="none";
+    setKind(r&&r.kind==="leave"?"leave":"work");
+    document.getElementById("ci").value=hhmm(r&&r.ci!=null?r.ci:R.earliest);
+    document.getElementById("co").value=hhmm(r&&r.co!=null?r.co:R.aftEnd);
+    clr.style.display=r?"block":"none";
+    liveUpdate();
+    document.getElementById("backdrop").classList.add("open");
+    document.getElementById("sheet").classList.add("open");
+  }
+  function closeEditor(){document.getElementById("backdrop").classList.remove("open");document.getElementById("sheet").classList.remove("open");}
+
+  document.getElementById("grid").addEventListener("click",function(e){var c=e.target.closest(".cell");if(c&&!c.classList.contains("empty"))openEditor(c.dataset.key);});
+  document.getElementById("prev").onclick=function(){anchor.m--;if(anchor.m<1){anchor.m=12;anchor.y--;}render();};
+  document.getElementById("next").onclick=function(){anchor.m++;if(anchor.m>12){anchor.m=1;anchor.y++;}render();};
+  document.getElementById("today").onclick=function(){anchor={y:T.getFullYear(),m:T.getMonth()+1};render();};
+  document.getElementById("cancel").onclick=closeEditor;
+  document.getElementById("backdrop").onclick=closeEditor;
+  Array.prototype.forEach.call(document.querySelectorAll("#kindSeg button"),function(b){b.onclick=function(){setKind(b.dataset.k);};});
+  document.getElementById("ci").addEventListener("input",liveUpdate);
+  document.getElementById("co").addEventListener("input",liveUpdate);
+  Array.prototype.forEach.call(document.querySelectorAll(".quick button"),function(b){b.onclick=function(){
+    var q=b.dataset.q;
+    if(q==="in830")document.getElementById("ci").value="08:30";
+    else if(q==="out1800")document.getElementById("co").value="18:00";
+    else{var s=stats(anchor.y,anchor.m),t=s.per>0?Math.round(s.per*60):R.stdMin;document.getElementById("co").value=hhmm(recCO(t,parse(document.getElementById("ci").value)));}
+    liveUpdate();
+  };});
+  document.getElementById("save").onclick=function(){
+    if(curKind==="leave")rec[curKey]={kind:"leave"};
+    else{var ci=parse(document.getElementById("ci").value),co=parse(document.getElementById("co").value);if(co<=ci)return;rec[curKey]={kind:"work",ci:ci,co:co};}
+    persist();closeEditor();render();
+  };
+  document.getElementById("clear").onclick=function(){delete rec[curKey];persist();closeEditor();render();};
+
+  render();
+  if("serviceWorker" in navigator){window.addEventListener("load",function(){navigator.serviceWorker.register("sw.js").catch(function(){});});}
+})();
+</script>
+</body>
+</html>
