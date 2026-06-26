@@ -57,7 +57,19 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
 .legend{display:flex;flex-wrap:wrap;gap:10px 16px;justify-content:center;margin-top:16px;font-size:11.5px;color:var(--text2);}
 .legend span{display:inline-flex;align-items:center;gap:5px;}
 .dot{width:10px;height:10px;border-radius:3px;display:inline-block;}
-/* sheet */
+/* 底部柱状图 */
+.chartcard{margin-top:16px;}
+.charthd{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px;}
+.charthd .t{font-size:14px;font-weight:600;}
+.chartbox{position:relative;height:104px;display:flex;align-items:flex-end;gap:2px;}
+.refline{position:absolute;left:0;right:0;border-top:1px dashed var(--text3);opacity:.6;}
+.reflabel{position:absolute;right:0;font-size:9px;color:var(--text3);transform:translateY(-50%);background:var(--card);padding:0 3px;}
+.barwrap{flex:1;display:flex;align-items:flex-end;justify-content:center;height:100%;cursor:pointer;}
+.bar{width:78%;border-radius:2px;min-height:2px;}
+.xlabels{display:flex;gap:2px;margin-top:3px;}
+.xlabels div{flex:1;text-align:center;font-size:9px;color:var(--text3);}
+.cap{font-size:11.5px;color:var(--text2);margin-top:8px;text-align:center;}
+/* 弹层 */
 .backdrop{position:fixed;inset:0;background:rgba(0,0,0,0.45);opacity:0;pointer-events:none;transition:opacity .2s;z-index:10;}
 .backdrop.open{opacity:1;pointer-events:auto;}
 .sheet{position:fixed;left:0;right:0;bottom:0;background:var(--card);border-top-left-radius:22px;border-top-right-radius:22px;
@@ -76,6 +88,9 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
 .times input{width:100%;margin-top:6px;font-size:17px;padding:9px 10px;border:0.5px solid var(--border);border-radius:10px;background:var(--card2);color:var(--text);}
 .quick{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px;}
 .quick button{font-size:12.5px;padding:8px 12px;border-radius:18px;border:none;background:var(--blue-bg);color:var(--blue-tx);font-weight:600;cursor:pointer;}
+.suggest{font-size:12.5px;line-height:1.5;padding:11px 13px;border-radius:10px;background:var(--blue-bg);color:var(--blue-tx);margin-bottom:12px;display:none;}
+.suggest.warn{background:var(--amber-bg);color:var(--amber-tx);}
+.suggest b{font-weight:700;}
 .live{background:var(--card2);border-radius:12px;padding:13px 15px;}
 .live .row{display:flex;justify-content:space-between;align-items:baseline;}
 .live .h{font-size:24px;font-weight:700;}
@@ -97,11 +112,16 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
   <div class="weekhdr"><div>一</div><div>二</div><div>三</div><div>四</div><div>五</div><div>六</div><div>日</div></div>
   <div class="grid" id="grid"></div>
   <div class="legend">
-    <span><i class="dot" style="background:var(--green-bg)"></i>达标(≥8h)</span>
+    <span><i class="dot" style="background:var(--green-bg)"></i>达标/节假日8h</span>
     <span><i class="dot" style="background:var(--amber-bg)"></i>不足8h</span>
     <span><i class="dot" style="background:var(--blue-bg)"></i>调休班</span>
     <span><i class="dot" style="background:var(--gray-bg)"></i>请假</span>
-    <span><i class="dot" style="background:var(--card);border:1px solid var(--border)"></i>休息日</span>
+  </div>
+  <div class="card chartcard">
+    <div class="charthd"><span class="t">本月工时趋势</span><span class="hint" id="chartSub"></span></div>
+    <div class="chartbox" id="chart"></div>
+    <div class="xlabels" id="xlabels"></div>
+    <div class="cap" id="chartCap"></div>
   </div>
 </div>
 
@@ -119,16 +139,17 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
   </div>
   <div id="workArea">
     <div class="times">
-      <label>上班<input type="time" id="ci" value="08:30"></label>
-      <label>下班<input type="time" id="co" value="18:00"></label>
+      <label>上班<input type="time" id="ci" step="1" value="09:30:00"></label>
+      <label>下班<input type="time" id="co" step="1" value="18:00:00"></label>
     </div>
     <div class="quick">
       <button data-q="in830">8:30 到岗</button>
       <button data-q="out1800">18:00 下班</button>
-      <button data-q="suggest">按达标建议下班</button>
+      <button data-q="suggest">套用最优下班</button>
     </div>
+    <div class="suggest" id="suggest"></div>
     <div class="live">
-      <div class="row"><span class="muted" style="font-size:14px;">当日有效工时</span><span class="h" id="liveH">8.0 h</span></div>
+      <div class="row"><span class="muted" style="font-size:14px;">当日有效工时</span><span class="h" id="liveH">7.00 h</span></div>
       <div class="note" id="liveLate" style="display:none;"></div>
     </div>
   </div>
@@ -138,68 +159,105 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
 <script>
 (function(){
   "use strict";
-  var R={earliest:510,mornEnd:750,aftStart:840,aftEnd:1080,eveStart:1110,late:570,stdMin:480,stdH:8};
+  // 单位：距零点“秒”
+  var R={earliest:30600,mornEnd:45000,aftStart:50400,aftEnd:64800,eveStart:66600,late:34200,stdDaily:28800,stdH:8};
   var ov=function(a,b,c,d){return Math.max(0,Math.min(b,d)-Math.max(a,c));};
-  function effMin(ci,co){if(co<=ci)return 0;return ov(ci,co,R.earliest,R.mornEnd)+ov(ci,co,R.aftStart,R.aftEnd)+ov(ci,co,R.eveStart,1440);}
-  function effH(ci,co){return effMin(ci,co)/60;}
-  function lateLeave(ci){return ci>R.late?(ci-R.late)/60/8:0;}
-  function recCO(t,ci){ci=Math.min(ci,R.mornEnd);var m=Math.max(0,R.mornEnd-Math.max(ci,R.earliest));var need=t-m-240;return need<=0?Math.min(R.aftStart+(t-m),R.aftEnd):R.eveStart+need;}
+  function effSec(ci,co){if(co<=ci)return 0;return ov(ci,co,R.earliest,R.mornEnd)+ov(ci,co,R.aftStart,R.aftEnd)+ov(ci,co,R.eveStart,86400);}
+  function effH(ci,co){return effSec(ci,co)/3600;}
+  // 迟到：不足1分钟向上取整；返回 {min, days}
+  function lateInfo(ci){if(ci<=R.late)return null;var sec=ci-R.late;var min=Math.ceil(sec/60);return {min:min,days:min/60/8};}
+  function lateLeaveDays(ci){var l=lateInfo(ci);return l?l.days:0;}
+  // 目标秒数 + 到岗时间 -> 建议下班（秒）
+  function recCO(t,ci){ci=Math.min(ci,R.mornEnd);var m=Math.max(0,R.mornEnd-Math.max(ci,R.earliest));var aft=R.aftEnd-R.aftStart;var need=t-m-aft;return need<=0?Math.min(R.aftStart+(t-m),R.aftEnd):R.eveStart+need;}
   function pad(n){return(n<10?"0":"")+n;}
-  function hhmm(m){return pad(Math.floor(m/60))+":"+pad(m%60);}
-  function parse(v){var p=(v||"0:0").split(":");return (+p[0])*60+(+p[1]);}
+  function hms(s){s=Math.round(s);if(s>86400)s=86400;var h=Math.floor(s/3600),m=Math.floor((s%3600)/60),x=s%60;return pad(h)+":"+pad(m)+":"+pad(x);}
+  function parse(v){if(!v)return 0;var p=v.split(":");return (+p[0])*3600+(+(p[1]||0))*60+(+(p[2]||0));}
 
+  // 2026 放假日（广义：含调休借放日）
   var HOL=new Set(["2026-01-01","2026-01-02","2026-01-03","2026-02-15","2026-02-16","2026-02-17","2026-02-18","2026-02-19","2026-02-20","2026-02-21","2026-02-22","2026-02-23","2026-04-04","2026-04-05","2026-04-06","2026-05-01","2026-05-02","2026-05-03","2026-05-04","2026-05-05","2026-06-19","2026-06-20","2026-06-21","2026-09-25","2026-09-26","2026-09-27","2026-10-01","2026-10-02","2026-10-03","2026-10-04","2026-10-05","2026-10-06","2026-10-07"]);
   var MK=new Set(["2026-01-04","2026-02-14","2026-02-28","2026-05-09","2026-09-20","2026-10-10"]);
-  var NM={"2026-01-01":"元旦","2026-02-15":"春节","2026-02-17":"初一","2026-04-04":"清明","2026-05-01":"劳动","2026-06-19":"端午","2026-09-25":"中秋","2026-10-01":"国庆"};
+  var NM={"2026-01-01":"元旦","2026-02-16":"除夕","2026-02-17":"初一","2026-04-06":"清明","2026-05-01":"劳动","2026-06-19":"端午","2026-09-25":"中秋","2026-10-01":"国庆"};
   var WD=["周日","周一","周二","周三","周四","周五","周六"];
   function key(y,m,d){return y+"-"+pad(m)+"-"+pad(d);}
   function isWork(k,dow){if(MK.has(k))return true;if(HOL.has(k))return false;return dow!==0&&dow!==6;}
-  // 真正的法定节假日（自动计 8h 有效工时；不含调休借放日），2026 年共 13 天
-  var STAT=new Set(["2026-01-01","2026-02-16","2026-02-17","2026-02-18","2026-02-19","2026-04-05","2026-05-01","2026-05-02","2026-06-19","2026-09-25","2026-10-01","2026-10-02","2026-10-03"]);
-  // 仅当法定节假日落在周一~周五（本应上班）时，才自动计 8h
-  function isPaidHol(k,dow){return STAT.has(k)&&dow>=1&&dow<=5;}
+  // 落在周一~周五的放假日，自动计 8h（含调休借放日）
+  function isPaidHol(k,dow){return HOL.has(k)&&dow>=1&&dow<=5;}
 
   var LS="workhours.records.v1";
   var rec={};
   try{rec=JSON.parse(localStorage.getItem(LS)||"{}");}catch(e){rec={};}
+  // 迁移：旧版本以“分钟”存储（值 < 1440），统一转为“秒”
+  (function migrate(){var changed=false;for(var k in rec){var r=rec[k];if(r&&r.kind==="work"){if(r.ci!=null&&r.ci<1440){r.ci=r.ci*60;changed=true;}if(r.co!=null&&r.co<1440){r.co=r.co*60;changed=true;}}}if(changed)persist();})();
   function persist(){try{localStorage.setItem(LS,JSON.stringify(rec));}catch(e){}}
 
   var T=new Date();
   var TKEY=key(T.getFullYear(),T.getMonth()+1,T.getDate());
   var anchor={y:T.getFullYear(),m:T.getMonth()+1};
-  var curKey=null,curKind="work";
+  var curKey=null,curKind="work",curNeedSec=0;
 
   function daysIn(y,m){return new Date(y,m,0).getDate();}
+
   function stats(y,m){
-    var s={wd:0,logH:0,tgt:0,logD:0,rem:0,lv:0,lateD:0,hol:0};
+    var s={wd:0,logSec:0,logD:0,rem:0,lv:0,lateD:0,hol:0};
     for(var d=1;d<=daysIn(y,m);d++){
       var k=key(y,m,d),dow=new Date(y,m-1,d).getDay(),r=rec[k];
       if(r&&r.kind==="leave"){s.lv++;continue;}
-      if(isPaidHol(k,dow)){s.wd++;s.hol++;s.logH+=R.stdH;continue;} // 节假日：进目标天数 + 自动记 8h（净额为0）
+      if(isPaidHol(k,dow)){s.wd++;s.hol++;s.logSec+=R.stdDaily;continue;}
       var w=isWork(k,dow);if(w)s.wd++;
-      if(r&&r.kind==="work"&&r.ci!=null&&r.co!=null){s.logH+=effH(r.ci,r.co);if(w)s.logD++;s.lateD+=lateLeave(r.ci);}
+      if(r&&r.kind==="work"&&r.ci!=null&&r.co!=null){s.logSec+=effSec(r.ci,r.co);if(w)s.logD++;s.lateD+=lateLeaveDays(r.ci);}
       else if(w)s.rem++;
     }
-    s.tgt=R.stdH*s.wd;s.diff=s.logH-s.tgt;s.per=s.rem>0?(s.tgt-s.logH)/s.rem:0;s.prog=s.tgt>0?Math.min(1,s.logH/s.tgt):0;s.done=s.logD+s.hol;
+    s.logH=s.logSec/3600;s.tgt=R.stdH*s.wd;s.diff=s.logH-s.tgt;
+    s.per=s.rem>0?(s.tgt*3600-s.logSec)/s.rem/3600:0;
+    s.prog=s.tgt>0?Math.min(1,s.logH/s.tgt):0;s.done=s.logD+s.hol;
     return s;
   }
+
+  // 为某一天建议的工时（秒）：把该天当作尚未填写的工作日，按当月匀速分摊
+  function needSecForDay(y,m,d){
+    var dow=new Date(y,m-1,d).getDay(),tk=key(y,m,d);
+    if(isPaidHol(tk,dow)||!isWork(tk,dow))return -1;
+    var tgt=0,logged=0,remaining=0;
+    for(var dd=1;dd<=daysIn(y,m);dd++){
+      var k=key(y,m,dd),dw=new Date(y,m-1,dd).getDay(),r=rec[k];
+      if(k===tk){tgt+=R.stdDaily;remaining++;continue;}
+      if(r&&r.kind==="leave")continue;
+      if(isPaidHol(k,dw)){tgt+=R.stdDaily;logged+=R.stdDaily;continue;}
+      var w=isWork(k,dw);if(w)tgt+=R.stdDaily;
+      if(r&&r.kind==="work"&&r.ci!=null&&r.co!=null)logged+=effSec(r.ci,r.co);
+      else if(w)remaining++;
+    }
+    if(remaining<=0)return 0;
+    var need=(tgt-logged)/remaining;
+    return need<0?0:need;
+  }
+
+  // 该天是本周（周一~周日）工作日里的倒数第几个（0=最后一天，1=倒数第二，-1=非工作日）
+  function weekRankFromEnd(y,m,d){
+    var date=new Date(y,m-1,d),off=(date.getDay()+6)%7,mon=new Date(date);mon.setDate(d-off);
+    var list=[];
+    for(var i=0;i<7;i++){var dd=new Date(mon);dd.setDate(mon.getDate()+i);if(isWork(key(dd.getFullYear(),dd.getMonth()+1,dd.getDate()),dd.getDay()))list.push(dd.getTime());}
+    var idx=list.indexOf(date.getTime());
+    return idx<0?-1:list.length-1-idx;
+  }
+
   function statusOf(s){
     if(s.wd===0)return{t:"本月没有应出勤工作日",c:"var(--text3)",f:"var(--text3)"};
     if(s.rem===0){
-      if(s.diff>0.05)return{t:"本月已超目标 "+s.diff.toFixed(1)+" 小时",c:"var(--amber-tx)",f:"var(--amber-tx)"};
-      if(s.diff<-0.05)return{t:"还差 "+(-s.diff).toFixed(1)+" 小时，且无剩余工作日，需补卡",c:"var(--red-tx)",f:"var(--red-tx)"};
+      if(s.diff>0.02)return{t:"本月已超目标 "+s.diff.toFixed(2)+" 小时",c:"var(--amber-tx)",f:"var(--amber-tx)"};
+      if(s.diff<-0.02)return{t:"还差 "+(-s.diff).toFixed(2)+" 小时，且无剩余工作日，需补卡",c:"var(--red-tx)",f:"var(--red-tx)"};
       return{t:"本月已正好达标",c:"var(--green-tx)",f:"var(--green-tx)"};
     }
-    if(s.per>R.stdH+0.01)return{t:"需加班：剩余每个工作日平均要 "+s.per.toFixed(1)+" 小时",c:"var(--amber-tx)",f:"var(--amber-tx)"};
+    if(s.per>R.stdH+0.005)return{t:"需加班：剩余每个工作日平均要 "+s.per.toFixed(2)+" 小时",c:"var(--amber-tx)",f:"var(--amber-tx)"};
     if(s.per<0)return{t:"已超出目标，剩余日子可准时下班",c:"var(--green-tx)",f:"var(--green-tx)"};
-    return{t:"轻松达标：剩余每个工作日平均 "+s.per.toFixed(1)+" 小时即可",c:"var(--green-tx)",f:"var(--accent)"};
+    return{t:"轻松达标：剩余每个工作日平均 "+s.per.toFixed(2)+" 小时即可",c:"var(--green-tx)",f:"var(--accent)"};
   }
 
   function renderSummary(){
     var s=stats(anchor.y,anchor.m),st=statusOf(s);
     var sug="";
-    if(s.rem>0&&s.per>0)sug='<div class="hint" style="font-size:12px;margin-top:9px;">建议：8:30 到岗则约 '+hhmm(recCO(Math.round(s.per*60),R.earliest))+' 下班</div>';
-    var ded=[];if(s.hol>0)ded.push("法定节假日 "+s.hol+" 天自动计 8h");if(s.lv>0)ded.push("请假 "+s.lv+" 天");if(s.lateD>0.001)ded.push("迟到折算无薪请假 "+s.lateD.toFixed(1)+" 天");
+    if(s.rem>0&&s.per>0)sug='<div class="hint" style="font-size:12px;margin-top:9px;">建议：8:30 到岗则约 '+hms(recCO(Math.round(s.per*3600),R.earliest))+' 下班</div>';
+    var ded=[];if(s.hol>0)ded.push("法定节假日 "+s.hol+" 天自动计 8h");if(s.lv>0)ded.push("请假 "+s.lv+" 天");if(s.lateD>0.000005)ded.push("迟到折算无薪请假 "+s.lateD.toFixed(5)+" 天");
     var dedHtml=ded.length?'<div class="hint" style="font-size:12px;margin-top:5px;">'+ded.join("，")+'</div>':"";
     function c(l,v){return '<div><div class="v">'+v+'</div><div class="l">'+l+'</div></div>';}
     document.getElementById("summary").innerHTML='<div class="card">'
@@ -221,9 +279,9 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
       if(r&&r.kind==="leave"){bg="background:var(--gray-bg);";sub='<span class="sub" style="color:var(--gray-tx)">请假</span>';}
       else if(paid){bg="background:var(--green-bg);";sub='<span class="sub" style="color:var(--green-tx)">'+(NM[k]||"假")+'</span>';}
       else if(r&&r.kind==="work"&&r.ci!=null){
-        var hrs=effH(r.ci,r.co);
-        if(hrs>=R.stdH-0.001){bg="background:var(--green-bg);";sub='<span class="sub" style="color:var(--green-tx)">'+hrs.toFixed(1)+'</span>';}
-        else{bg="background:var(--amber-bg);";sub='<span class="sub" style="color:var(--amber-tx)">'+hrs.toFixed(1)+'</span>';}
+        var hh=effH(r.ci,r.co);
+        if(effSec(r.ci,r.co)>=R.stdDaily-1){bg="background:var(--green-bg);";sub='<span class="sub" style="color:var(--green-tx)">'+hh.toFixed(1)+'</span>';}
+        else{bg="background:var(--amber-bg);";sub='<span class="sub" style="color:var(--amber-tx)">'+hh.toFixed(1)+'</span>';}
       }
       else if(isMk){sub='<span class="sub" style="color:var(--blue-tx)">班</span>';}
       else if(isHol){cls+=" dim";sub='<span class="sub" style="color:var(--text3)">休</span>';}
@@ -233,37 +291,88 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
     }
     document.getElementById("grid").innerHTML=h;
   }
-  function render(){document.getElementById("title").textContent=anchor.y+"年"+anchor.m+"月";renderSummary();renderGrid();}
 
+  function renderChart(){
+    var y=anchor.y,m=anchor.m,n=daysIn(y,m),maxH=8,items=[];
+    for(var d=1;d<=n;d++){
+      var k=key(y,m,d),dow=new Date(y,m-1,d).getDay(),r=rec[k],hh=0,tp="rest";
+      if(r&&r.kind==="leave")tp="leave";
+      else if(isPaidHol(k,dow)){hh=8;tp="hol";}
+      else if(r&&r.kind==="work"&&r.ci!=null){hh=effH(r.ci,r.co);tp=(effSec(r.ci,r.co)>=R.stdDaily-1)?"ok":"low";}
+      else if(isWork(k,dow))tp="todo";
+      if(hh>maxH)maxH=hh;
+      items.push({d:d,h:hh,tp:tp,k:k});
+    }
+    maxH=Math.ceil(maxH);
+    var H=104;
+    var bars=items.map(function(o){
+      var ph=o.h>0?Math.max(3,Math.round(o.h/maxH*H)):0;
+      var fill="transparent";
+      if(o.tp==="ok")fill="var(--green-tx)";else if(o.tp==="low")fill="var(--amber-tx)";
+      else if(o.tp==="hol")fill="var(--green-bg)";else if(o.tp==="leave")fill="var(--gray-bg)";
+      var bar=ph>0?'<div class="bar" style="height:'+ph+'px;background:'+fill+';'+(o.tp==="hol"?"border:1px solid var(--green-tx);":"")+'"></div>':(o.tp==="todo"?'<div class="bar" style="height:3px;background:var(--gray-bg);"></div>':'');
+      return '<div class="barwrap" data-key="'+o.k+'" title="'+o.d+'日 '+o.h.toFixed(2)+'h">'+bar+'</div>';
+    }).join("");
+    var refBottom=Math.round(8/maxH*H);
+    document.getElementById("chart").innerHTML=bars+'<div class="refline" style="bottom:'+refBottom+'px;"></div><div class="reflabel" style="bottom:'+refBottom+'px;">8h</div>';
+    var xl="";for(var d=1;d<=n;d++){xl+='<div>'+((d===1||d%5===0||d===n)?d:"")+'</div>';}
+    document.getElementById("xlabels").innerHTML=xl;
+    document.getElementById("chartSub").textContent="峰值 "+maxH+"h";
+    var s=stats(y,m);
+    document.getElementById("chartCap").textContent= s.rem>0
+      ? ("还需 "+Math.max(0,(s.tgt-s.logH)).toFixed(1)+" h，剩 "+s.rem+" 个工作日，加油 ▸")
+      : (Math.abs(s.diff)<0.02?"本月已正好达标，稳！":(s.diff>0?"本月超额 "+s.diff.toFixed(1)+"h":"本月还差 "+(-s.diff).toFixed(1)+"h"));
+  }
+
+  function render(){document.getElementById("title").textContent=anchor.y+"年"+anchor.m+"月";renderSummary();renderGrid();renderChart();}
+
+  function applySuggestText(){
+    var info=document.getElementById("suggest");
+    if(curNeedSec<0){info.style.display="none";return;}
+    var ci=parse(document.getElementById("ci").value);
+    var p=curKey.split("-"),rank=weekRankFromEnd(+p[0],+p[1],+p[2]);
+    info.classList.toggle("warn",rank===0||rank===1);
+    if(curNeedSec<=0){
+      info.innerHTML="本月进度已达标，今日按到岗时长即可，<b>无需加班</b>。";
+    }else{
+      var co=recCO(curNeedSec,ci);
+      var txt="按当月匀速进度，今日建议做满 <b>"+(curNeedSec/3600).toFixed(2)+" h</b>，约 <b>"+hms(co)+"</b> 下班。";
+      if(rank===0)txt="本周最后一个工作日！"+txt+" 别让月均掉到 8h 以下。";
+      else if(rank===1)txt="本周临近周末（剩 2 个工作日）。"+txt;
+      info.innerHTML=txt;
+    }
+    info.style.display="block";
+  }
   function liveUpdate(){
     var ci=parse(document.getElementById("ci").value),co=parse(document.getElementById("co").value);
-    document.getElementById("liveH").textContent=effH(ci,co).toFixed(1)+" h";
-    var el=document.getElementById("liveLate"),ld=lateLeave(ci);
+    document.getElementById("liveH").textContent=effH(ci,co).toFixed(2)+" h";
+    var el=document.getElementById("liveLate"),l=lateInfo(ci);
     if(co<=ci){el.style.display="block";el.textContent="下班时间需晚于上班时间";el.style.color="var(--red-tx)";}
-    else if(ld>0.001){el.style.display="block";el.textContent="迟到折算请假 "+ld.toFixed(2)+" 天（无薪）";el.style.color="var(--amber-tx)";}
+    else if(l){el.style.display="block";el.textContent="迟到 "+l.min+" 分钟（不足1分钟进1），折算请假 "+l.days.toFixed(5)+" 天（无薪）";el.style.color="var(--amber-tx)";}
     else el.style.display="none";
+    if(curKind==="work")applySuggestText();
   }
-  function setKind(k){curKind=k;Array.prototype.forEach.call(document.querySelectorAll("#kindSeg button"),function(b){b.classList.toggle("on",b.dataset.k===k);});document.getElementById("workArea").style.display=k==="work"?"block":"none";}
+  function setKind(k){curKind=k;Array.prototype.forEach.call(document.querySelectorAll("#kindSeg button"),function(b){b.classList.toggle("on",b.dataset.k===k);});document.getElementById("workArea").style.display=k==="work"?"block":"none";if(k==="leave")document.getElementById("suggest").style.display="none";else applySuggestText();}
 
   function openEditor(k){
-    curKey=k;var r=rec[k],p=k.split("-"),dt=new Date(+p[0],+p[1]-1,+p[2]),dow=dt.getDay();
-    document.getElementById("sheetTitle").textContent=(+p[1])+"月"+(+p[2])+"日 "+WD[dow];
+    curKey=k;var r=rec[k],p=k.split("-"),y=+p[0],mo=+p[1],dd=+p[2],dow=new Date(y,mo-1,dd).getDay();
+    document.getElementById("sheetTitle").textContent=mo+"月"+dd+"日 "+WD[dow];
     var info=document.getElementById("sheetInfo");
     var seg=document.getElementById("kindSeg"),wa=document.getElementById("workArea"),save=document.getElementById("save"),clr=document.getElementById("clear");
-    if(isPaidHol(k,dow)){ // 法定节假日：自动 8h，无需编辑
+    if(isPaidHol(k,dow)){
       info.style.display="block";info.style.color="var(--green-tx)";
       info.textContent="法定节假日"+(NM[k]?"（"+NM[k]+"）":"")+"，自动计 8h 有效工时，无需打卡。";
       seg.style.display="none";wa.style.display="none";save.style.display="none";clr.style.display="none";
-      document.getElementById("backdrop").classList.add("open");document.getElementById("sheet").classList.add("open");
-      return;
+      document.getElementById("backdrop").classList.add("open");document.getElementById("sheet").classList.add("open");return;
     }
     seg.style.display="";save.style.display="";
     if(HOL.has(k)){info.style.display="block";info.style.color="var(--green-tx)";info.textContent="假期/休息日，无需打卡；如加班可照填，计入本月合计。";}
     else if(MK.has(k)){info.style.display="block";info.style.color="var(--blue-tx)";info.textContent="调休补班日，需正常上班。";}
     else info.style.display="none";
+    curNeedSec=needSecForDay(y,mo,dd);
     setKind(r&&r.kind==="leave"?"leave":"work");
-    document.getElementById("ci").value=hhmm(r&&r.ci!=null?r.ci:R.earliest);
-    document.getElementById("co").value=hhmm(r&&r.co!=null?r.co:R.aftEnd);
+    document.getElementById("ci").value=hms(r&&r.ci!=null?r.ci:R.late);
+    document.getElementById("co").value=hms(r&&r.co!=null?r.co:R.aftEnd);
     clr.style.display=r?"block":"none";
     liveUpdate();
     document.getElementById("backdrop").classList.add("open");
@@ -271,7 +380,8 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
   }
   function closeEditor(){document.getElementById("backdrop").classList.remove("open");document.getElementById("sheet").classList.remove("open");}
 
-  document.getElementById("grid").addEventListener("click",function(e){var c=e.target.closest(".cell");if(c&&!c.classList.contains("empty"))openEditor(c.dataset.key);});
+  function bindCellClicks(id){document.getElementById(id).addEventListener("click",function(e){var c=e.target.closest("[data-key]");if(c&&!c.classList.contains("empty"))openEditor(c.getAttribute("data-key"));});}
+  bindCellClicks("grid");bindCellClicks("chart");
   document.getElementById("prev").onclick=function(){anchor.m--;if(anchor.m<1){anchor.m=12;anchor.y--;}render();};
   document.getElementById("next").onclick=function(){anchor.m++;if(anchor.m>12){anchor.m=1;anchor.y++;}render();};
   document.getElementById("today").onclick=function(){anchor={y:T.getFullYear(),m:T.getMonth()+1};render();};
@@ -282,9 +392,9 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
   document.getElementById("co").addEventListener("input",liveUpdate);
   Array.prototype.forEach.call(document.querySelectorAll(".quick button"),function(b){b.onclick=function(){
     var q=b.dataset.q;
-    if(q==="in830")document.getElementById("ci").value="08:30";
-    else if(q==="out1800")document.getElementById("co").value="18:00";
-    else{var s=stats(anchor.y,anchor.m),t=s.per>0?Math.round(s.per*60):R.stdMin;document.getElementById("co").value=hhmm(recCO(t,parse(document.getElementById("ci").value)));}
+    if(q==="in830")document.getElementById("ci").value="08:30:00";
+    else if(q==="out1800")document.getElementById("co").value="18:00:00";
+    else{var t=curNeedSec>0?curNeedSec:R.stdDaily;document.getElementById("co").value=hms(recCO(Math.round(t),parse(document.getElementById("ci").value)));}
     liveUpdate();
   };});
   document.getElementById("save").onclick=function(){
