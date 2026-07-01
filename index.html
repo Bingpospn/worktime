@@ -102,6 +102,7 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
 .live .h{font-size:24px;font-weight:700;}
 .note{font-size:12px;margin-top:7px;}
 .info{font-size:12.5px;margin-bottom:12px;line-height:1.45;}
+.salchip{border:none;background:var(--card2);color:var(--text2);font-size:12px;padding:6px 11px;border-radius:14px;cursor:pointer;white-space:nowrap;}
 </style>
 </head>
 <body>
@@ -142,6 +143,7 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
     <button data-k="work">上班</button>
     <button data-k="leave">请假（全天）</button>
   </div>
+  <div class="suggest" id="leaveNote" style="display:none;"></div>
   <div id="workArea">
     <div class="times">
       <div class="tcol"><span class="tlbl">上班</span>
@@ -163,6 +165,11 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
     </div>
   </div>
   <button class="linkbtn" id="clear" style="width:100%;color:var(--red-tx);margin-top:14px;display:none;">清除本日记录</button>
+</div>
+<div class="sheet" id="setSheet">
+  <div class="sheethdr"><button class="linkbtn plain" id="setCancel">取消</button><div class="t">设置月薪</div><button class="linkbtn" id="setSave" style="font-weight:600;">保存</button></div>
+  <div class="info" style="display:block;color:var(--text2);">用于计算迟到扣款：日薪 = 月薪 ÷ 当月应计天数。仅存在本机，不上传。</div>
+  <label style="font-size:13px;color:var(--text2);">税前月薪（元）<input type="number" id="salInput" inputmode="decimal" min="0" step="0.01" placeholder="如 12000" style="width:100%;margin-top:6px;font-size:17px;padding:10px;border:0.5px solid var(--border);border-radius:10px;background:var(--card2);color:var(--text);"></label>
 </div>
 
 <script>
@@ -194,6 +201,10 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
   try{rec=JSON.parse(localStorage.getItem(LS)||"{}");}catch(e){rec={};}
   (function migrate(){var changed=false;for(var k in rec){var r=rec[k];if(r&&r.kind==="work"){if(r.ci!=null&&r.ci<1440){r.ci=r.ci*60;changed=true;}if(r.co!=null&&r.co<1440){r.co=r.co*60;changed=true;}}}if(changed)persist();})();
   function persist(){try{localStorage.setItem(LS,JSON.stringify(rec));}catch(e){}}
+  var LSS="workhours.salary.v1";
+  var salary=parseFloat(localStorage.getItem(LSS))||0;
+  function saveSalary(){try{localStorage.setItem(LSS,String(salary));}catch(e){}}
+  function dailyWage(wd){return (salary>0&&wd>0)?salary/wd:0;} // 日薪 = 月薪 ÷ 当月应计天数
 
   var T=new Date();
   var TKEY=key(T.getFullYear(),T.getMonth()+1,T.getDate());
@@ -203,19 +214,27 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
   function daysIn(y,m){return new Date(y,m,0).getDate();}
 
   function stats(y,m){
-    var s={wd:0,logSec:0,logD:0,rem:0,lv:0,lateD:0,hol:0};
+    var s={wd:0,logSec:0,logD:0,rem:0,lv:0,lateD:0,hol:0,payDays:0};
     for(var d=1;d<=daysIn(y,m);d++){
       var k=key(y,m,d),dow=new Date(y,m-1,d).getDay(),r=rec[k];
-      if(r&&r.kind==="leave"){s.lv++;continue;}
-      if(isPaidHol(k,dow)){s.wd++;s.hol++;s.logSec+=R.stdDaily;continue;}
-      var w=isWork(k,dow);if(w)s.wd++;
+      if(isPaidHol(k,dow)){s.payDays++;s.wd++;s.hol++;s.logSec+=R.stdDaily;continue;}
+      var w=isWork(k,dow);if(w)s.payDays++;               // 计薪天数：工作日(含请假日)+法定节假日
+      if(r&&r.kind==="leave"){s.lv++;continue;}           // 请假：整天缺勤，不计入工时目标
+      if(w)s.wd++;
       if(r&&r.kind==="work"&&r.ci!=null&&r.co!=null){s.logSec+=effSec(r.ci,r.co);if(w)s.logD++;s.lateD+=lateLeaveDays(r.ci);}
       else if(w)s.rem++;
     }
     s.logH=s.logSec/3600;s.tgt=R.stdH*s.wd;s.diff=s.logH-s.tgt;
     s.per=s.rem>0?(s.tgt*3600-s.logSec)/s.rem/3600:0;
     s.prog=s.tgt>0?Math.min(1,s.logH/s.tgt):0;s.done=s.logD+s.hol;
+    s.absence=s.lateD+s.lv*0.875;                          // 缺勤天数：迟到 + 请假(各7h=0.875天)
     return s;
+  }
+  function monthEndOrPast(y,m){
+    var now=new Date(),cy=now.getFullYear(),cm=now.getMonth()+1;
+    if(y<cy||(y===cy&&m<cm))return true;
+    if(y===cy&&m===cm)return now.getDate()>=daysIn(y,m)-4;
+    return false;
   }
 
   function needSecForDay(y,m,d){
@@ -260,14 +279,23 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
     var s=stats(anchor.y,anchor.m),st=statusOf(s);
     var sug="";
     if(s.rem>0&&s.per>0)sug='<div class="hint" style="font-size:12px;margin-top:9px;">建议：8:30 到岗则约 '+hms(recCO(Math.round(s.per*3600),R.earliest))+' 下班</div>';
-    var ded=[];if(s.hol>0)ded.push("法定节假日 "+s.hol+" 天自动计 8h");if(s.lv>0)ded.push("请假 "+s.lv+" 天");if(s.lateD>0.000005)ded.push("迟到折算无薪请假 "+s.lateD.toFixed(5)+" 天");
+    var dw=dailyWage(s.payDays),absPay=dw*s.absence,rest=salary-absPay,net=rest*0.84;
+    var ded=[];if(s.hol>0)ded.push("法定节假日 "+s.hol+" 天正常计薪");if(s.lv>0)ded.push("请假 "+s.lv+" 天(各计7h缺勤)");if(s.lateD>0.000005)ded.push("迟到折算缺勤 "+s.lateD.toFixed(5)+" 天");
+    if(s.absence>0.000005&&dw>0)ded.push("缺勤扣款合计 ¥"+absPay.toFixed(2));
     var dedHtml=ded.length?'<div class="hint" style="font-size:12px;margin-top:5px;">'+ded.join("，")+'</div>':"";
+    var est="";
+    if(salary>0&&monthEndOrPast(anchor.y,anchor.m)){
+      est='<div style="margin-top:12px;padding-top:12px;border-top:0.5px solid var(--border);">'
+        +'<div style="display:flex;justify-content:space-between;align-items:baseline;"><span class="muted" style="font-size:13px;">本月预计实发（税后）</span><b style="font-size:19px;color:var(--green-tx);">¥'+net.toFixed(2)+'</b></div>'
+        +'<div class="hint" style="font-size:11px;margin-top:4px;line-height:1.5;">月薪 '+salary+' − 缺勤扣款 '+absPay.toFixed(2)+' = '+rest.toFixed(2)+'；应纳税额 '+(rest*0.16).toFixed(2)+' =（剩余×80%）×20%；实发 = 剩余 − 税额。仅供参考。</div></div>';
+    }
     function c(l,v){return '<div><div class="v">'+v+'</div><div class="l">'+l+'</div></div>';}
     document.getElementById("summary").innerHTML='<div class="card">'
-      +'<div style="display:flex;align-items:baseline;gap:8px;"><span class="bignum">'+s.logH.toFixed(1)+'</span><span class="muted" style="font-size:15px;">h / 目标 '+s.tgt.toFixed(0)+' h</span></div>'
+      +'<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;"><div style="display:flex;align-items:baseline;gap:8px;"><span class="bignum">'+s.logH.toFixed(1)+'</span><span class="muted" style="font-size:15px;">h / 目标 '+s.tgt.toFixed(0)+' h</span></div><button id="setSalary" class="salchip">'+(salary>0?('¥'+salary+'/月'):'设置月薪')+'</button></div>'
       +'<div class="track"><div class="fill" style="width:'+(s.prog*100).toFixed(0)+'%;background:'+st.f+';"></div></div>'
       +'<div class="stats">'+c("应计",s.wd+" 天")+c("已完成",s.done+" 天")+c("剩余",s.rem+" 天")+c(s.diff>=0?"已超":"还差",Math.abs(s.diff).toFixed(1)+" h")+'</div>'
-      +'<div class="statusline" style="color:'+st.c+';"><span>'+st.t+'</span></div>'+sug+dedHtml+'</div>';
+      +'<div class="statusline" style="color:'+st.c+';"><span>'+st.t+'</span></div>'+sug+dedHtml+est+'</div>';
+    document.getElementById("setSalary").onclick=editSalary;
   }
 
   function renderGrid(){
@@ -351,11 +379,12 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
     document.getElementById("liveH").textContent=effH(ci,co).toFixed(2)+" h";
     var el=document.getElementById("liveLate"),l=lateInfo(ci);
     if(co<=ci){el.style.display="block";el.textContent="下班时间需晚于上班时间";el.style.color="var(--red-tx)";}
-    else if(l){el.style.display="block";el.textContent="迟到 "+l.min+" 分钟（不足1分钟进1），折算请假 "+l.days.toFixed(5)+" 天（无薪）";el.style.color="var(--amber-tx)";}
+    else if(l){var p2=curKey.split("-"),dw=dailyWage(stats(+p2[0],+p2[1]).payDays),money=dw>0?("，扣款 ¥"+(l.days*dw).toFixed(2)):"";el.style.display="block";el.textContent="迟到 "+l.min+" 分钟（不足1分钟进1），折算缺勤 "+l.days.toFixed(5)+" 天（无薪）"+money;el.style.color="var(--amber-tx)";}
     else el.style.display="none";
     if(curKind==="work")applySuggestText();
   }
-  function setKind(k){curKind=k;Array.prototype.forEach.call(document.querySelectorAll("#kindSeg button"),function(b){b.classList.toggle("on",b.dataset.k===k);});document.getElementById("workArea").style.display=k==="work"?"block":"none";if(k==="leave")document.getElementById("suggest").style.display="none";else applySuggestText();}
+  function setKind(k){curKind=k;Array.prototype.forEach.call(document.querySelectorAll("#kindSeg button"),function(b){b.classList.toggle("on",b.dataset.k===k);});document.getElementById("workArea").style.display=k==="work"?"block":"none";if(k==="leave"){document.getElementById("suggest").style.display="none";showLeaveNote();}else{document.getElementById("leaveNote").style.display="none";applySuggestText();}}
+  function showLeaveNote(){var info=document.getElementById("leaveNote"),p=curKey.split("-"),dw=dailyWage(stats(+p[0],+p[1]).payDays),money=dw>0?("，扣款 ¥"+(0.875*dw).toFixed(2)+"（无薪）"):"";info.classList.add("warn");info.innerHTML="全天请假：按 <b>7h 缺勤</b>（0.875 天）计"+money+"。";info.style.display="block";}
 
   function openEditor(k){
     curKey=k;var r=rec[k],p=k.split("-"),y=+p[0],mo=+p[1],dd=+p[2],dow=new Date(y,mo-1,dd).getDay();
@@ -381,7 +410,9 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
     document.getElementById("backdrop").classList.add("open");
     document.getElementById("sheet").classList.add("open");
   }
-  function closeEditor(){document.getElementById("backdrop").classList.remove("open");document.getElementById("sheet").classList.remove("open");}
+  function closeEditor(){document.getElementById("backdrop").classList.remove("open");document.getElementById("sheet").classList.remove("open");document.getElementById("setSheet").classList.remove("open");}
+  function openSalary(){document.getElementById("salInput").value=salary>0?salary:"";document.getElementById("backdrop").classList.add("open");document.getElementById("setSheet").classList.add("open");}
+  function editSalary(){openSalary();}
 
   function bindCellClicks(id){document.getElementById(id).addEventListener("click",function(e){var c=e.target.closest("[data-key]");if(c&&!c.classList.contains("empty"))openEditor(c.getAttribute("data-key"));});}
   bindCellClicks("grid");bindCellClicks("chart");
@@ -405,6 +436,8 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
     persist();closeEditor();render();
   };
   document.getElementById("clear").onclick=function(){delete rec[curKey];persist();closeEditor();render();};
+  document.getElementById("setCancel").onclick=closeEditor;
+  document.getElementById("setSave").onclick=function(){var nn=parseFloat(document.getElementById("salInput").value);salary=(isNaN(nn)||nn<0)?0:nn;saveSalary();closeEditor();render();};
 
   render();
   if("serviceWorker" in navigator){window.addEventListener("load",function(){navigator.serviceWorker.register("sw.js").catch(function(){});});}
