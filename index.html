@@ -141,7 +141,12 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
   <div class="info" id="sheetInfo" style="display:none;"></div>
   <div class="seg" id="kindSeg">
     <button data-k="work">上班</button>
-    <button data-k="leave">请假（全天）</button>
+    <button data-k="leave">请假</button>
+  </div>
+  <div class="seg" id="halfSeg" style="display:none;margin-bottom:14px;">
+    <button data-h="full">全天</button>
+    <button data-h="am">上半天</button>
+    <button data-h="pm">下半天</button>
   </div>
   <div class="suggest" id="leaveNote" style="display:none;"></div>
   <div id="workArea">
@@ -181,6 +186,7 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
   function effH(ci,co){return effSec(ci,co)/3600;}
   function lateInfo(ci){if(ci<=R.late)return null;var sec=ci-R.late;var min=Math.ceil(sec/60);return {min:min,days:min/60/8};}
   function lateLeaveDays(ci){var l=lateInfo(ci);return l?l.days:0;}
+  function absHalf(h){return h==="am"?0.375:h==="pm"?0.5:0.875;} // 请假缺勤(天)：上半天3h/下半天4h/全天7h
   function recCO(t,ci){ci=Math.min(ci,R.mornEnd);var m=Math.max(0,R.mornEnd-Math.max(ci,R.earliest));var aft=R.aftEnd-R.aftStart;var need=t-m-aft;return need<=0?Math.min(R.aftStart+(t-m),R.aftEnd):R.eveStart+need;}
   function pad(n){return(n<10?"0":"")+n;}
   function hms(s){s=Math.round(s);if(s>86400)s=86400;var h=Math.floor(s/3600),m=Math.floor((s%3600)/60),x=s%60;return pad(h)+":"+pad(m)+":"+pad(x);}
@@ -209,17 +215,17 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
   var T=new Date();
   var TKEY=key(T.getFullYear(),T.getMonth()+1,T.getDate());
   var anchor={y:T.getFullYear(),m:T.getMonth()+1};
-  var curKey=null,curKind="work",curNeedSec=0;
+  var curKey=null,curKind="work",curNeedSec=0,curHalf="full";
 
   function daysIn(y,m){return new Date(y,m,0).getDate();}
 
   function stats(y,m){
-    var s={wd:0,logSec:0,logD:0,rem:0,lv:0,lateD:0,hol:0,payDays:0};
+    var s={wd:0,logSec:0,logD:0,rem:0,lv:0,leaveAbs:0,lateD:0,hol:0,payDays:0};
     for(var d=1;d<=daysIn(y,m);d++){
       var k=key(y,m,d),dow=new Date(y,m-1,d).getDay(),r=rec[k];
       if(isPaidHol(k,dow)){s.payDays++;s.wd++;s.hol++;s.logSec+=R.stdDaily;continue;}
       var w=isWork(k,dow);if(w)s.payDays++;               // 计薪天数：工作日(含请假日)+法定节假日
-      if(r&&r.kind==="leave"){s.lv++;continue;}           // 请假：整天缺勤，不计入工时目标
+      if(r&&r.kind==="leave"){if(w){s.lv++;s.leaveAbs+=absHalf(r.half);}continue;} // 请假：按半天/全天记缺勤，不计入工时目标
       if(w)s.wd++;
       if(r&&r.kind==="work"&&r.ci!=null&&r.co!=null){s.logSec+=effSec(r.ci,r.co);if(w)s.logD++;s.lateD+=lateLeaveDays(r.ci);}
       else if(w)s.rem++;
@@ -227,7 +233,7 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
     s.logH=s.logSec/3600;s.tgt=R.stdH*s.wd;s.diff=s.logH-s.tgt;
     s.per=s.rem>0?(s.tgt*3600-s.logSec)/s.rem/3600:0;
     s.prog=s.tgt>0?Math.min(1,s.logH/s.tgt):0;s.done=s.logD+s.hol;
-    s.absence=s.lateD+s.lv*0.875;                          // 缺勤天数：迟到 + 请假(各7h=0.875天)
+    s.absence=s.lateD+s.leaveAbs;                          // 缺勤天数：迟到 + 请假(全/半天)
     return s;
   }
   function monthEndOrPast(y,m){
@@ -280,7 +286,7 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
     var sug="";
     if(s.rem>0&&s.per>0)sug='<div class="hint" style="font-size:12px;margin-top:9px;">建议：8:30 到岗则约 '+hms(recCO(Math.round(s.per*3600),R.earliest))+' 下班</div>';
     var dw=dailyWage(s.payDays),absPay=dw*s.absence,rest=salary-absPay,net=rest*0.84;
-    var ded=[];if(s.hol>0)ded.push("法定节假日 "+s.hol+" 天正常计薪");if(s.lv>0)ded.push("请假 "+s.lv+" 天(各计7h缺勤)");if(s.lateD>0.000005)ded.push("迟到折算缺勤 "+s.lateD.toFixed(5)+" 天");
+    var ded=[];if(s.hol>0)ded.push("法定节假日 "+s.hol+" 天正常计薪");if(s.lv>0)ded.push("请假 "+s.lv+" 次(缺勤 "+s.leaveAbs.toFixed(3)+" 天)");if(s.lateD>0.000005)ded.push("迟到折算缺勤 "+s.lateD.toFixed(5)+" 天");
     if(s.absence>0.000005&&dw>0)ded.push("缺勤扣款合计 ¥"+absPay.toFixed(2));
     var dedHtml=ded.length?'<div class="hint" style="font-size:12px;margin-top:5px;">'+ded.join("，")+'</div>':"";
     var est="";
@@ -307,7 +313,7 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
       var k=key(y,m,d),dow=new Date(y,m-1,d).getDay(),r=rec[k];
       var isHol=HOL.has(k),isMk=MK.has(k),paid=isPaidHol(k,dow),isWe=(dow===0||dow===6)&&!isMk;
       var cls="cell",bg="",sub="";
-      if(r&&r.kind==="leave"){bg="background:var(--gray-bg);";sub='<span class="sub" style="color:var(--gray-tx)">请假</span>';}
+      if(r&&r.kind==="leave"){bg="background:var(--gray-bg);";var lb=r.half==="am"?"上午假":r.half==="pm"?"下午假":"请假";sub='<span class="sub" style="color:var(--gray-tx)">'+lb+'</span>';}
       else if(paid){bg="background:var(--green-bg);";sub='<span class="sub" style="color:var(--green-tx)">'+(NM[k]||"假")+'</span>';}
       else if(r&&r.kind==="work"&&r.ci!=null){
         var hh=effH(r.ci,r.co);
@@ -383,8 +389,9 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
     else el.style.display="none";
     if(curKind==="work")applySuggestText();
   }
-  function setKind(k){curKind=k;Array.prototype.forEach.call(document.querySelectorAll("#kindSeg button"),function(b){b.classList.toggle("on",b.dataset.k===k);});document.getElementById("workArea").style.display=k==="work"?"block":"none";if(k==="leave"){document.getElementById("suggest").style.display="none";showLeaveNote();}else{document.getElementById("leaveNote").style.display="none";applySuggestText();}}
-  function showLeaveNote(){var info=document.getElementById("leaveNote"),p=curKey.split("-"),dw=dailyWage(stats(+p[0],+p[1]).payDays),money=dw>0?("，扣款 ¥"+(0.875*dw).toFixed(2)+"（无薪）"):"";info.classList.add("warn");info.innerHTML="全天请假：按 <b>7h 缺勤</b>（0.875 天）计"+money+"。";info.style.display="block";}
+  function setKind(k){curKind=k;Array.prototype.forEach.call(document.querySelectorAll("#kindSeg button"),function(b){b.classList.toggle("on",b.dataset.k===k);});document.getElementById("workArea").style.display=k==="work"?"block":"none";if(k==="leave"){document.getElementById("suggest").style.display="none";document.getElementById("halfSeg").style.display="flex";setHalf(curHalf);}else{document.getElementById("halfSeg").style.display="none";document.getElementById("leaveNote").style.display="none";applySuggestText();}}
+  function setHalf(h){curHalf=h;Array.prototype.forEach.call(document.querySelectorAll("#halfSeg button"),function(b){b.classList.toggle("on",b.dataset.h===h);});showLeaveNote();}
+  function showLeaveNote(){var info=document.getElementById("leaveNote"),p=curKey.split("-"),dw=dailyWage(stats(+p[0],+p[1]).payDays),ab=absHalf(curHalf),hrs=curHalf==="am"?3:curHalf==="pm"?4:7,label=curHalf==="am"?"上半天请假（8:30–12:30）":curHalf==="pm"?"下半天请假（14:00–18:00）":"全天请假",money=dw>0?("，扣款 ¥"+(ab*dw).toFixed(2)+"（无薪）"):"";info.classList.add("warn");info.innerHTML=label+"：按 <b>"+hrs+"h 缺勤</b>（"+ab+" 天）计"+money+"。";info.style.display="block";}
 
   function openEditor(k){
     curKey=k;var r=rec[k],p=k.split("-"),y=+p[0],mo=+p[1],dd=+p[2],dow=new Date(y,mo-1,dd).getDay();
@@ -402,6 +409,7 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
     else if(MK.has(k)){info.style.display="block";info.style.color="var(--blue-tx)";info.textContent="调休补班日，需正常上班。";}
     else info.style.display="none";
     curNeedSec=needSecForDay(y,mo,dd);
+    curHalf=(r&&r.kind==="leave"&&r.half)?r.half:"full";
     setKind(r&&r.kind==="leave"?"leave":"work");
     setT("ci","cis", r&&r.ci!=null?r.ci:R.late);
     setT("co","cos", r&&r.co!=null?r.co:R.aftEnd);
@@ -422,6 +430,7 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
   document.getElementById("cancel").onclick=closeEditor;
   document.getElementById("backdrop").onclick=closeEditor;
   Array.prototype.forEach.call(document.querySelectorAll("#kindSeg button"),function(b){b.onclick=function(){setKind(b.dataset.k);};});
+  Array.prototype.forEach.call(document.querySelectorAll("#halfSeg button"),function(b){b.onclick=function(){setHalf(b.dataset.h);};});
   ["ci","cis","co","cos"].forEach(function(id){document.getElementById(id).addEventListener("input",liveUpdate);});
   Array.prototype.forEach.call(document.querySelectorAll(".quick button"),function(b){b.onclick=function(){
     var q=b.dataset.q;
@@ -431,7 +440,7 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
     liveUpdate();
   };});
   document.getElementById("save").onclick=function(){
-    if(curKind==="leave")rec[curKey]={kind:"leave"};
+    if(curKind==="leave")rec[curKey]={kind:"leave",half:curHalf};
     else{var ci=readT("ci","cis"),co=readT("co","cos");if(co<=ci)return;rec[curKey]={kind:"work",ci:ci,co:co};}
     persist();closeEditor();render();
   };

@@ -1,4 +1,4 @@
-var CACHE = "worktime-v5";
+var CACHE = "worktime-v6";
 var ASSETS = [
   "./",
   "./index.html",
